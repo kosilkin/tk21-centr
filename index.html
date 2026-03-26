@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Центр карьеры колледжа</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-pattern"></div>
+
+  <header>
+    <div class="header-inner">
+      <div class="header-topline">
+        <div>
+          <div class="header-label">Центр карьеры колледжа</div>
+          <h1 class="header-title">Вакансии, мероприятия и команда центра карьеры</h1>
+          <p class="header-text">
+            Актуальные предложения работы, формы записи, карьерные события и информация по направлениям обучения.
+          </p>
+        </div>
+
+        <button class="admin-open-btn" id="openAdminBtn">Админка</button>
+      </div>
+
+      <div class="top-links">
+        <a href="#info">Инфо</a>
+        <a href="#team">Команда</a>
+        <a href="#events">Мероприятия</a>
+        <a href="#jobs">Вакансии</a>
+        <a href="#directions">Направления</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="status-banner hidden" id="statusBanner"></div>
+
+    <section class="row-2">
+      <article class="panel" id="info">
+        <div class="panel-content">
+          <h2 class="panel-title">Инфо</h2>
+          <p class="panel-text">
+            Центр карьеры помогает студентам найти стажировки, практику и работу. Здесь публикуются вакансии,
+            ссылки на формы регистрации на мероприятия и информация по карьерным направлениям.
+          </p>
+          <div class="info-mark">Отклики и запись доступны онлайн</div>
+        </div>
+      </article>
+
+      <article class="panel" id="team">
+        <div class="panel-content">
+          <div class="section-head compact">
+            <h2 class="panel-title no-margin">Команда центра</h2>
+            <div class="head-badge" id="teamCountBadge">0 сотрудников</div>
+          </div>
+          <div class="team-grid" id="teamGrid"></div>
+          <div class="empty-state hidden" id="teamEmpty">Сотрудники пока не добавлены.</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel calendar-wrap" id="events">
+      <div class="panel-content">
+        <div class="calendar-head">
+          <h2 class="panel-title no-margin">Мероприятия</h2>
+
+          <div class="calendar-tools">
+            <button class="calendar-nav-btn" id="prevMonthBtn">← Назад</button>
+            <div class="calendar-month" id="calendarMonthTitle"></div>
+            <button class="calendar-nav-btn" id="nextMonthBtn">Вперёд →</button>
+            <div class="calendar-mark">Календарь событий</div>
+          </div>
+        </div>
+
+        <div class="calendar-weekdays">
+          <div class="weekday">Пн</div>
+          <div class="weekday">Вт</div>
+          <div class="weekday">Ср</div>
+          <div class="weekday">Чт</div>
+          <div class="weekday">Пт</div>
+          <div class="weekday">Сб</div>
+          <div class="weekday">Вс</div>
+        </div>
+
+        <div class="calendar-grid" id="calendarGrid"></div>
+
+        <div class="calendar-bottom">
+          <div class="events-summary">
+            <h3 class="events-summary-title">События месяца</h3>
+            <div class="summary-list" id="eventsSummaryList"></div>
+            <div class="empty-state hidden" id="eventsEmpty">На выбранный месяц событий пока нет.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel jobs-panel" id="jobs">
+      <div class="panel-content">
+        <div class="section-head">
+          <h2 class="panel-title no-margin">Вакансии</h2>
+          <div class="head-badge" id="jobsCountBadge">0 вакансий</div>
+        </div>
+
+        <div class="jobs-grid" id="jobsGrid"></div>
+        <div class="empty-state hidden" id="jobsEmpty">Вакансии пока не добавлены.</div>
+      </div>
+    </section>
+
+    <section class="panel" id="directions">
+      <div class="panel-content">
+        <div class="section-head">
+          <h2 class="panel-title no-margin">Направления обучения и вакансии</h2>
+          <div class="head-badge" id="directionsCountBadge">0 направлений</div>
+        </div>
+
+        <div class="directions-grid" id="directionsGrid"></div>
+        <div class="empty-state hidden" id="directionsEmpty">Направления пока не добавлены.</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal" id="adminModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 class="modal-title">Админ-панель</h2>
+        <button class="close-btn" id="closeAdminBtn">Закрыть</button>
+      </div>
+
+      <div id="loginView">
+        <div class="login-wrap">
+          <p class="muted-text">
+            Вход выполняется через Supabase Auth. Для GitHub Pages это нормальный вариант: фронтенд статический,
+            а логин и база данных работают во внешнем сервисе.
+          </p>
+
+          <div class="field">
+            <label for="adminEmail">Email</label>
+            <input type="email" id="adminEmail" placeholder="admin@example.com" />
+          </div>
+
+          <div class="field">
+            <label for="adminPassword">Пароль</label>
+            <input type="password" id="adminPassword" placeholder="Введите пароль" />
+          </div>
+
+          <button class="btn" id="loginBtn">Войти</button>
+          <div class="error" id="loginError"></div>
+        </div>
+      </div>
+
+      <div id="adminView" class="hidden">
+        <div class="admin-topbar">
+          <div class="muted-text" id="adminUserLabel"></div>
+          <div class="admin-top-actions">
+            <button class="btn gray" id="refreshBtn">Обновить данные</button>
+            <button class="btn secondary" id="logoutBtn">Выйти</button>
+          </div>
+        </div>
+
+        <div class="admin-grid">
+          <div class="admin-card">
+            <h3>Вакансии</h3>
+            <div class="edit-note" id="jobEditNote"></div>
+
+            <div class="field">
+              <label for="jobTitle">Название</label>
+              <input type="text" id="jobTitle" />
+            </div>
+
+            <div class="field">
+              <label for="jobDirection">Направление</label>
+              <input type="text" id="jobDirection" placeholder="Например: ИСИП" />
+            </div>
+
+            <div class="field">
+              <label for="jobDesc">Описание</label>
+              <textarea id="jobDesc"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="jobLink">Ссылка на форму</label>
+              <input type="text" id="jobLink" placeholder="https://..." />
+            </div>
+
+            <div class="form-toolbar">
+              <button class="btn" id="saveJobBtn">Сохранить</button>
+              <button class="btn gray" id="cancelJobEditBtn">Отменить</button>
+            </div>
+
+            <div class="list" id="jobsAdminList"></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>События</h3>
+            <div class="edit-note" id="eventEditNote"></div>
+
+            <div class="field">
+              <label for="eventTitle">Название события</label>
+              <input type="text" id="eventTitle" />
+            </div>
+
+            <div class="field two-cols">
+              <div>
+                <label for="eventYear">Год</label>
+                <input type="number" id="eventYear" placeholder="2026" />
+              </div>
+              <div>
+                <label for="eventMonth">Месяц</label>
+                <select id="eventMonth"></select>
+              </div>
+            </div>
+
+            <div class="field two-cols">
+              <div>
+                <label for="eventDate">Дата месяца</label>
+                <input type="number" id="eventDate" min="1" max="31" />
+              </div>
+              <div>
+                <label for="eventTime">Время</label>
+                <input type="text" id="eventTime" placeholder="16:00" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="eventPlace">Место / описание</label>
+              <textarea id="eventPlace"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="eventColor">Цвет</label>
+              <select id="eventColor">
+                <option value="blue">Синий</option>
+                <option value="orange">Оранжевый</option>
+                <option value="green">Зелёный</option>
+              </select>
+            </div>
+
+            <div class="form-toolbar">
+              <button class="btn" id="saveEventBtn">Сохранить</button>
+              <button class="btn gray" id="cancelEventEditBtn">Отменить</button>
+            </div>
+
+            <div class="list" id="eventsAdminList"></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>Команда</h3>
+            <div class="edit-note" id="memberEditNote"></div>
+
+            <div class="field">
+              <label for="memberName">ФИО</label>
+              <input type="text" id="memberName" />
+            </div>
+
+            <div class="field">
+              <label for="memberRole">Должность</label>
+              <input type="text" id="memberRole" />
+            </div>
+
+            <div class="field">
+              <label for="memberDesc">Описание</label>
+              <textarea id="memberDesc"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="memberPhoto">Ссылка на фото</label>
+              <input type="text" id="memberPhoto" placeholder="https://..." />
+            </div>
+
+            <div class="form-toolbar">
+              <button class="btn" id="saveMemberBtn">Сохранить</button>
+              <button class="btn gray" id="cancelMemberEditBtn">Отменить</button>
+            </div>
+
+            <div class="list" id="membersAdminList"></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>Направления</h3>
+            <div class="edit-note" id="directionEditNote"></div>
+
+            <div class="field">
+              <label for="directionName">Название направления</label>
+              <input type="text" id="directionName" />
+            </div>
+
+            <div class="field">
+              <label for="directionSub">Подпись / описание</label>
+              <input type="text" id="directionSub" />
+            </div>
+
+            <div class="field">
+              <label for="directionJobs">Предлагаемые вакансии</label>
+              <textarea id="directionJobs" placeholder="Каждая вакансия с новой строки"></textarea>
+            </div>
+
+            <div class="form-toolbar">
+              <button class="btn" id="saveDirectionBtn">Сохранить</button>
+              <button class="btn gray" id="cancelDirectionEditBtn">Отменить</button>
+            </div>
+
+            <div class="list" id="directionsAdminList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
