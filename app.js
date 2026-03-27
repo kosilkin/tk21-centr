@@ -95,6 +95,9 @@ let editingJobId = null;
 let editingEventId = null;
 let editingMemberId = null;
 let editingDirectionId = null;
+let authListener = null;
+let isDemoMode = false;
+let localSessionUser = null;
 
 function fillMonthSelect() {
   eventMonth.innerHTML = MONTH_NAMES.map((name, index) => `<option value="${index}">${name}</option>`).join('');
@@ -149,6 +152,81 @@ function normalizeDirectionJobs(value) {
     }
   }
   return [];
+}
+
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeEventRecord(event) {
+  return {
+    ...event,
+    year: toNumber(event?.year),
+    month: toNumber(event?.month),
+    day: toNumber(event?.day),
+    event_time: String(event?.event_time || ''),
+    place: String(event?.place || ''),
+    color: event?.color || 'blue'
+  };
+}
+
+
+
+function getDemoData() {
+  const raw = localStorage.getItem('career_center_demo_data_v1');
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      // ignore broken storage
+    }
+  }
+
+  return {
+    jobs: [
+      { id: 'demo-job-1', title: 'Стажёр Frontend', direction: 'ИСИП', description: 'Помощь в разработке интерфейсов.', form_link: '#' }
+    ],
+    events: [
+      { id: 'demo-event-1', title: 'Карьерный интенсив', year: new Date().getFullYear(), month: new Date().getMonth(), day: Math.max(1, new Date().getDate()), event_time: '12:00', place: 'Актовый зал', color: 'blue' }
+    ],
+    members: [
+      { id: 'demo-member-1', full_name: 'Администратор демо', role: 'Координатор', description: 'Демо-режим без Supabase.', photo_url: '' }
+    ],
+    directions: [
+      { id: 'demo-dir-1', name: 'ИСИП', subtitle: 'Информационные системы', jobs: ['Стажёр Frontend', 'Стажёр QA'] }
+    ]
+  };
+}
+
+function loadDemoDataIntoState() {
+  const data = getDemoData();
+  state.jobs = data.jobs || [];
+  state.events = (data.events || []).map(normalizeEventRecord);
+  state.members = data.members || [];
+  state.directions = data.directions || [];
+}
+
+function requireSupabaseForEdit() {
+  if (isDemoMode || !supabase) {
+    showStatus('Сохранение отключено: сейчас включен демо-режим без Supabase.', true);
+    return false;
+  }
+  return true;
+}
+
+function readErrorMessage(error, fallback = 'Неизвестная ошибка') {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+
+  const message = String(error.message || error.error_description || error.details || fallback);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
+    return 'Нет связи с Supabase. Проверьте URL проекта, ключ и доступность сети.';
+  }
+
+  return message;
 }
 
 function renderJobs() {
@@ -214,6 +292,7 @@ function renderCalendar() {
   }
 
   const monthEvents = state.events
+    .map(normalizeEventRecord)
     .filter(e => e.year === currentCalendarYear && e.month === currentCalendarMonth)
     .sort((a, b) => a.day - b.day || (a.event_time || '').localeCompare(b.event_time || ''));
 
@@ -311,7 +390,7 @@ function renderJobsAdmin() {
 
 function renderEventsAdmin() {
   eventsAdminList.innerHTML = '';
-  state.events.forEach(event => {
+  state.events.map(normalizeEventRecord).forEach(event => {
     const item = document.createElement('div');
     item.className = 'item';
     item.innerHTML = `
@@ -418,30 +497,47 @@ function clearDirectionForm() {
 }
 
 async function loadAllData() {
-  if (!supabase) return;
-
-  const [jobsRes, eventsRes, membersRes, directionsRes] = await Promise.all([
-    supabase.from('jobs').select('*').order('created_at', { ascending: false }),
-    supabase.from('events').select('*').order('year', { ascending: true }).order('month', { ascending: true }).order('day', { ascending: true }).order('event_time', { ascending: true }),
-    supabase.from('team_members').select('*').order('created_at', { ascending: true }),
-    supabase.from('directions').select('*').order('created_at', { ascending: true })
-  ]);
-
-  const errors = [jobsRes.error, eventsRes.error, membersRes.error, directionsRes.error].filter(Boolean);
-  if (errors.length) {
-    showStatus(`Ошибка загрузки данных: ${errors[0].message}`, true);
+  if (isDemoMode || !supabase) {
+    loadDemoDataIntoState();
+    showStatus('Сайт работает в демо-режиме (нет подключения к Supabase).', true);
+    renderAll();
     return;
   }
 
-  state.jobs = jobsRes.data || [];
-  state.events = eventsRes.data || [];
-  state.members = membersRes.data || [];
-  state.directions = directionsRes.data || [];
-  hideStatus();
-  renderAll();
+  try {
+    const [jobsRes, eventsRes, membersRes, directionsRes] = await Promise.all([
+      supabase.from('jobs').select('*').order('created_at', { ascending: false }),
+      supabase.from('events').select('*').order('year', { ascending: true }).order('month', { ascending: true }).order('day', { ascending: true }).order('event_time', { ascending: true }),
+      supabase.from('team_members').select('*').order('created_at', { ascending: true }),
+      supabase.from('directions').select('*').order('created_at', { ascending: true })
+    ]);
+
+    state.jobs = jobsRes.data || [];
+    state.events = (eventsRes.data || []).map(normalizeEventRecord);
+    state.members = membersRes.data || [];
+    state.directions = directionsRes.data || [];
+
+    const errors = [
+      jobsRes.error && `Вакансии: ${readErrorMessage(jobsRes.error)}`,
+      eventsRes.error && `События: ${readErrorMessage(eventsRes.error)}`,
+      membersRes.error && `Команда: ${readErrorMessage(membersRes.error)}`,
+      directionsRes.error && `Направления: ${readErrorMessage(directionsRes.error)}`
+    ].filter(Boolean);
+
+    if (errors.length) {
+      showStatus(`Часть данных не загружена. ${errors.join(' | ')}`, true);
+    } else {
+      hideStatus();
+    }
+
+    renderAll();
+  } catch (error) {
+    showStatus(`Ошибка соединения с базой: ${readErrorMessage(error)}`, true);
+  }
 }
 
 async function saveJob() {
+  if (!requireSupabaseForEdit()) return;
   const title = jobTitle.value.trim();
   const direction = jobDirection.value.trim();
   const description = jobDesc.value.trim();
@@ -467,6 +563,7 @@ async function saveJob() {
 }
 
 async function saveEvent() {
+  if (!requireSupabaseForEdit()) return;
   const title = eventTitle.value.trim();
   const year = Number(eventYear.value);
   const month = Number(eventMonth.value);
@@ -497,6 +594,7 @@ async function saveEvent() {
 }
 
 async function saveMember() {
+  if (!requireSupabaseForEdit()) return;
   const full_name = memberName.value.trim();
   const role = memberRole.value.trim();
   const description = memberDesc.value.trim();
@@ -522,6 +620,7 @@ async function saveMember() {
 }
 
 async function saveDirection() {
+  if (!requireSupabaseForEdit()) return;
   const name = directionName.value.trim();
   const subtitle = directionSub.value.trim();
   const jobs = directionJobs.value.split('\n').map(v => v.trim()).filter(Boolean);
@@ -596,6 +695,7 @@ function startEditDirection(id) {
 }
 
 async function deleteJob(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('jobs').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить вакансию: ${res.error.message}`, true);
@@ -606,6 +706,7 @@ async function deleteJob(id) {
 }
 
 async function deleteEvent(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('events').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить событие: ${res.error.message}`, true);
@@ -616,6 +717,7 @@ async function deleteEvent(id) {
 }
 
 async function deleteMember(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('team_members').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить сотрудника: ${res.error.message}`, true);
@@ -626,6 +728,7 @@ async function deleteMember(id) {
 }
 
 async function deleteDirection(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('directions').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить направление: ${res.error.message}`, true);
@@ -647,24 +750,30 @@ function changeMonth(step) {
   renderCalendar();
 }
 
+function applyAuthState(userOrSession) {
+  const user = userOrSession?.user || userOrSession;
+
+  if (user?.email) {
+    loginView.classList.add('hidden');
+    adminView.classList.remove('hidden');
+    adminUserLabel.textContent = `Вход выполнен: ${user.email}`;
+    return;
+  }
+
+  adminView.classList.add('hidden');
+  loginView.classList.remove('hidden');
+  adminUserLabel.textContent = '';
+}
+
 async function updateAuthUI() {
   if (!supabase) return;
   const { data, error } = await supabase.auth.getSession();
   if (error) {
-    showStatus(`Ошибка сессии: ${error.message}`, true);
+    showStatus(`Ошибка сессии: ${readErrorMessage(error)}`, true);
     return;
   }
 
-  const session = data.session;
-  if (session?.user) {
-    loginView.classList.add('hidden');
-    adminView.classList.remove('hidden');
-    adminUserLabel.textContent = `Вход выполнен: ${session.user.email}`;
-  } else {
-    adminView.classList.add('hidden');
-    loginView.classList.remove('hidden');
-    adminUserLabel.textContent = '';
-  }
+  applyAuthState(data.session);
 }
 
 async function login() {
@@ -672,18 +781,62 @@ async function login() {
   const email = adminEmail.value.trim();
   const password = adminPassword.value;
   if (!email || !password) return;
+  if (isDemoMode || !supabase) {
+    const demoEmail = config.DEMO_ADMIN_EMAIL || 'admin@demo.local';
+    const demoPassword = config.DEMO_ADMIN_PASSWORD || 'admin12345';
+    if (email !== demoEmail || password !== demoPassword) {
+      loginError.textContent = 'Неверный логин или пароль (демо-режим).';
+      showStatus(`Ошибка входа: ${loginError.textContent}`, true);
+      return;
+    }
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    loginError.textContent = error.message;
+    localSessionUser = { email };
+    applyAuthState(localSessionUser);
+    showStatus(`Успешный вход: ${email}`);
     return;
   }
 
-  adminPassword.value = '';
-  await updateAuthUI();
+  const initialText = loginBtn.textContent;
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Вход...';
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      const message = readErrorMessage(error, 'Неизвестная ошибка входа');
+      if (message.toLowerCase().includes('invalid login credentials')) {
+        loginError.textContent = 'Неверный email или пароль.';
+      } else if (message.toLowerCase().includes('email not confirmed')) {
+        loginError.textContent = 'Email не подтверждён в Supabase Auth.';
+      } else {
+        loginError.textContent = message;
+      }
+      showStatus(`Ошибка входа: ${loginError.textContent}`, true);
+      return;
+    }
+
+    adminPassword.value = '';
+
+    const signedInUser = data?.session?.user || data?.user || { email };
+    applyAuthState(signedInUser);
+    showStatus(`Успешный вход: ${signedInUser.email || email}`);
+    await loadAllData();
+  } catch (error) {
+    loginError.textContent = readErrorMessage(error, 'Ошибка входа');
+    showStatus(`Ошибка входа: ${loginError.textContent}`, true);
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = initialText;
+  }
 }
 
 async function logout() {
+  if (isDemoMode || !supabase) {
+    localSessionUser = null;
+    applyAuthState(null);
+    return;
+  }
+
   const { error } = await supabase.auth.signOut();
   if (error) {
     showStatus(`Ошибка выхода: ${error.message}`, true);
@@ -700,11 +853,23 @@ async function init() {
   clearDirectionForm();
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    showStatus('Нужно создать config.js по образцу config.example.js и вставить URL/anon key Supabase.', true);
-    return;
+    isDemoMode = true;
+    showStatus('config.js не заполнен. Включен демо-режим.', true);
   }
 
-  supabase = createClient(supabaseUrl, supabaseAnonKey);
+  if (!isDemoMode && (!String(supabaseUrl).startsWith('https://') || String(supabaseAnonKey).length < 20)) {
+    isDemoMode = true;
+    showStatus('Похоже, в config.js некорректный URL или anon key. Включен демо-режим.', true);
+  }
+
+  if (!isDemoMode) {
+    try {
+      supabase = createClient(supabaseUrl, supabaseAnonKey);
+    } catch (error) {
+      isDemoMode = true;
+      showStatus(`Ошибка инициализации Supabase: ${readErrorMessage(error)}. Включен демо-режим.`, true);
+    }
+  }
 
   openAdminBtn.addEventListener('click', () => adminModal.classList.add('show'));
   closeAdminBtn.addEventListener('click', () => adminModal.classList.remove('show'));
@@ -713,6 +878,9 @@ async function init() {
   });
 
   loginBtn.addEventListener('click', login);
+  adminPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') login();
+  });
   logoutBtn.addEventListener('click', logout);
   refreshBtn.addEventListener('click', loadAllData);
 
@@ -729,13 +897,33 @@ async function init() {
   prevMonthBtn.addEventListener('click', () => changeMonth(-1));
   nextMonthBtn.addEventListener('click', () => changeMonth(1));
 
-  supabase.auth.onAuthStateChange(async () => {
-    await updateAuthUI();
-  });
+  if (!isDemoMode && supabase) {
+    if (authListener?.subscription) {
+      authListener.subscription.unsubscribe();
+    }
+    authListener = supabase.auth.onAuthStateChange(async () => {
+      try {
+        await updateAuthUI();
+      } catch (error) {
+        showStatus(`Ошибка обновления авторизации: ${readErrorMessage(error)}`, true);
+      }
+    });
 
-  await updateAuthUI();
+    await updateAuthUI();
+  } else {
+    applyAuthState(localSessionUser);
+  }
+
   await loadAllData();
 }
+
+window.addEventListener('unhandledrejection', (event) => {
+  showStatus(`Непойманная ошибка: ${readErrorMessage(event.reason)}`, true);
+});
+
+window.addEventListener('error', (event) => {
+  showStatus(`Ошибка приложения: ${readErrorMessage(event.error || event.message)}`, true);
+});
 
 window.startEditJob = startEditJob;
 window.startEditEvent = startEditEvent;
