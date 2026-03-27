@@ -95,6 +95,7 @@ let editingJobId = null;
 let editingEventId = null;
 let editingMemberId = null;
 let editingDirectionId = null;
+let authListener = null;
 
 function fillMonthSelect() {
   eventMonth.innerHTML = MONTH_NAMES.map((name, index) => `<option value="${index}">${name}</option>`).join('');
@@ -149,6 +150,37 @@ function normalizeDirectionJobs(value) {
     }
   }
   return [];
+}
+
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeEventRecord(event) {
+  return {
+    ...event,
+    year: toNumber(event?.year),
+    month: toNumber(event?.month),
+    day: toNumber(event?.day),
+    event_time: String(event?.event_time || ''),
+    place: String(event?.place || ''),
+    color: event?.color || 'blue'
+  };
+}
+
+function readErrorMessage(error, fallback = 'Неизвестная ошибка') {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+
+  const message = String(error.message || error.error_description || error.details || fallback);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
+    return 'Нет связи с Supabase. Проверьте URL проекта, ключ и доступность сети.';
+  }
+
+  return message;
 }
 
 function renderJobs() {
@@ -214,6 +246,7 @@ function renderCalendar() {
   }
 
   const monthEvents = state.events
+    .map(normalizeEventRecord)
     .filter(e => e.year === currentCalendarYear && e.month === currentCalendarMonth)
     .sort((a, b) => a.day - b.day || (a.event_time || '').localeCompare(b.event_time || ''));
 
@@ -311,7 +344,7 @@ function renderJobsAdmin() {
 
 function renderEventsAdmin() {
   eventsAdminList.innerHTML = '';
-  state.events.forEach(event => {
+  state.events.map(normalizeEventRecord).forEach(event => {
     const item = document.createElement('div');
     item.className = 'item';
     item.innerHTML = `
@@ -420,25 +453,36 @@ function clearDirectionForm() {
 async function loadAllData() {
   if (!supabase) return;
 
-  const [jobsRes, eventsRes, membersRes, directionsRes] = await Promise.all([
-    supabase.from('jobs').select('*').order('created_at', { ascending: false }),
-    supabase.from('events').select('*').order('year', { ascending: true }).order('month', { ascending: true }).order('day', { ascending: true }).order('event_time', { ascending: true }),
-    supabase.from('team_members').select('*').order('created_at', { ascending: true }),
-    supabase.from('directions').select('*').order('created_at', { ascending: true })
-  ]);
+  try {
+    const [jobsRes, eventsRes, membersRes, directionsRes] = await Promise.all([
+      supabase.from('jobs').select('*').order('created_at', { ascending: false }),
+      supabase.from('events').select('*').order('year', { ascending: true }).order('month', { ascending: true }).order('day', { ascending: true }).order('event_time', { ascending: true }),
+      supabase.from('team_members').select('*').order('created_at', { ascending: true }),
+      supabase.from('directions').select('*').order('created_at', { ascending: true })
+    ]);
 
-  const errors = [jobsRes.error, eventsRes.error, membersRes.error, directionsRes.error].filter(Boolean);
-  if (errors.length) {
-    showStatus(`Ошибка загрузки данных: ${errors[0].message}`, true);
-    return;
+    state.jobs = jobsRes.data || [];
+    state.events = (eventsRes.data || []).map(normalizeEventRecord);
+    state.members = membersRes.data || [];
+    state.directions = directionsRes.data || [];
+
+    const errors = [
+      jobsRes.error && `Вакансии: ${readErrorMessage(jobsRes.error)}`,
+      eventsRes.error && `События: ${readErrorMessage(eventsRes.error)}`,
+      membersRes.error && `Команда: ${readErrorMessage(membersRes.error)}`,
+      directionsRes.error && `Направления: ${readErrorMessage(directionsRes.error)}`
+    ].filter(Boolean);
+
+    if (errors.length) {
+      showStatus(`Часть данных не загружена. ${errors.join(' | ')}`, true);
+    } else {
+      hideStatus();
+    }
+
+    renderAll();
+  } catch (error) {
+    showStatus(`Ошибка соединения с базой: ${readErrorMessage(error)}`, true);
   }
-
-  state.jobs = jobsRes.data || [];
-  state.events = eventsRes.data || [];
-  state.members = membersRes.data || [];
-  state.directions = directionsRes.data || [];
-  hideStatus();
-  renderAll();
 }
 
 async function saveJob() {
@@ -647,24 +691,30 @@ function changeMonth(step) {
   renderCalendar();
 }
 
+function applyAuthState(userOrSession) {
+  const user = userOrSession?.user || userOrSession;
+
+  if (user?.email) {
+    loginView.classList.add('hidden');
+    adminView.classList.remove('hidden');
+    adminUserLabel.textContent = `Вход выполнен: ${user.email}`;
+    return;
+  }
+
+  adminView.classList.add('hidden');
+  loginView.classList.remove('hidden');
+  adminUserLabel.textContent = '';
+}
+
 async function updateAuthUI() {
   if (!supabase) return;
   const { data, error } = await supabase.auth.getSession();
   if (error) {
-    showStatus(`Ошибка сессии: ${error.message}`, true);
+    showStatus(`Ошибка сессии: ${readErrorMessage(error)}`, true);
     return;
   }
 
-  const session = data.session;
-  if (session?.user) {
-    loginView.classList.add('hidden');
-    adminView.classList.remove('hidden');
-    adminUserLabel.textContent = `Вход выполнен: ${session.user.email}`;
-  } else {
-    adminView.classList.add('hidden');
-    loginView.classList.remove('hidden');
-    adminUserLabel.textContent = '';
-  }
+  applyAuthState(data.session);
 }
 
 async function login() {
@@ -672,15 +722,43 @@ async function login() {
   const email = adminEmail.value.trim();
   const password = adminPassword.value;
   if (!email || !password) return;
-
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    loginError.textContent = error.message;
+  if (!supabase) {
+    loginError.textContent = 'Supabase не инициализирован. Проверьте config.js.';
     return;
   }
 
-  adminPassword.value = '';
-  await updateAuthUI();
+  const initialText = loginBtn.textContent;
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Вход...';
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      const message = readErrorMessage(error, 'Неизвестная ошибка входа');
+      if (message.toLowerCase().includes('invalid login credentials')) {
+        loginError.textContent = 'Неверный email или пароль.';
+      } else if (message.toLowerCase().includes('email not confirmed')) {
+        loginError.textContent = 'Email не подтверждён в Supabase Auth.';
+      } else {
+        loginError.textContent = message;
+      }
+      showStatus(`Ошибка входа: ${loginError.textContent}`, true);
+      return;
+    }
+
+    adminPassword.value = '';
+
+    const signedInUser = data?.session?.user || data?.user || { email };
+    applyAuthState(signedInUser);
+    showStatus(`Успешный вход: ${signedInUser.email || email}`);
+    await loadAllData();
+  } catch (error) {
+    loginError.textContent = readErrorMessage(error, 'Ошибка входа');
+    showStatus(`Ошибка входа: ${loginError.textContent}`, true);
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = initialText;
+  }
 }
 
 async function logout() {
@@ -704,7 +782,16 @@ async function init() {
     return;
   }
 
-  supabase = createClient(supabaseUrl, supabaseAnonKey);
+  if (!String(supabaseUrl).startsWith('https://') || String(supabaseAnonKey).length < 20) {
+    showStatus('Похоже, в config.js некорректный URL или anon key Supabase.', true);
+  }
+
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    showStatus(`Ошибка инициализации Supabase: ${readErrorMessage(error)}`, true);
+    return;
+  }
 
   openAdminBtn.addEventListener('click', () => adminModal.classList.add('show'));
   closeAdminBtn.addEventListener('click', () => adminModal.classList.remove('show'));
@@ -713,6 +800,9 @@ async function init() {
   });
 
   loginBtn.addEventListener('click', login);
+  adminPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') login();
+  });
   logoutBtn.addEventListener('click', logout);
   refreshBtn.addEventListener('click', loadAllData);
 
@@ -729,13 +819,28 @@ async function init() {
   prevMonthBtn.addEventListener('click', () => changeMonth(-1));
   nextMonthBtn.addEventListener('click', () => changeMonth(1));
 
-  supabase.auth.onAuthStateChange(async () => {
-    await updateAuthUI();
+  if (authListener?.subscription) {
+    authListener.subscription.unsubscribe();
+  }
+  authListener = supabase.auth.onAuthStateChange(async () => {
+    try {
+      await updateAuthUI();
+    } catch (error) {
+      showStatus(`Ошибка обновления авторизации: ${readErrorMessage(error)}`, true);
+    }
   });
 
   await updateAuthUI();
   await loadAllData();
 }
+
+window.addEventListener('unhandledrejection', (event) => {
+  showStatus(`Непойманная ошибка: ${readErrorMessage(event.reason)}`, true);
+});
+
+window.addEventListener('error', (event) => {
+  showStatus(`Ошибка приложения: ${readErrorMessage(event.error || event.message)}`, true);
+});
 
 window.startEditJob = startEditJob;
 window.startEditEvent = startEditEvent;

@@ -17,6 +17,11 @@
 5. Upload all files to a public GitHub repository.
 6. Enable GitHub Pages from the repository root.
 
+## Troubleshooting
+- If login still does not switch to admin view, open the status banner at the top of the page and check the exact error text.
+- If you see connection errors, verify `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `config.js`.
+- If wrong credentials are entered, the login form now shows a localized error message.
+
 ## Security note
 This uses the public anon key in the browser. That is normal for Supabase frontend apps.
 Never put the `service_role` key in `config.js`.
