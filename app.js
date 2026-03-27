@@ -486,6 +486,7 @@ async function loadAllData() {
 }
 
 async function saveJob() {
+  if (!requireSupabaseForEdit()) return;
   const title = jobTitle.value.trim();
   const direction = jobDirection.value.trim();
   const description = jobDesc.value.trim();
@@ -511,6 +512,7 @@ async function saveJob() {
 }
 
 async function saveEvent() {
+  if (!requireSupabaseForEdit()) return;
   const title = eventTitle.value.trim();
   const year = Number(eventYear.value);
   const month = Number(eventMonth.value);
@@ -541,6 +543,7 @@ async function saveEvent() {
 }
 
 async function saveMember() {
+  if (!requireSupabaseForEdit()) return;
   const full_name = memberName.value.trim();
   const role = memberRole.value.trim();
   const description = memberDesc.value.trim();
@@ -566,6 +569,7 @@ async function saveMember() {
 }
 
 async function saveDirection() {
+  if (!requireSupabaseForEdit()) return;
   const name = directionName.value.trim();
   const subtitle = directionSub.value.trim();
   const jobs = directionJobs.value.split('\n').map(v => v.trim()).filter(Boolean);
@@ -640,6 +644,7 @@ function startEditDirection(id) {
 }
 
 async function deleteJob(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('jobs').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить вакансию: ${res.error.message}`, true);
@@ -650,6 +655,7 @@ async function deleteJob(id) {
 }
 
 async function deleteEvent(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('events').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить событие: ${res.error.message}`, true);
@@ -660,6 +666,7 @@ async function deleteEvent(id) {
 }
 
 async function deleteMember(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('team_members').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить сотрудника: ${res.error.message}`, true);
@@ -670,6 +677,7 @@ async function deleteMember(id) {
 }
 
 async function deleteDirection(id) {
+  if (!requireSupabaseForEdit()) return;
   const res = await supabase.from('directions').delete().eq('id', id);
   if (res.error) {
     showStatus(`Не удалось удалить направление: ${res.error.message}`, true);
@@ -762,6 +770,12 @@ async function login() {
 }
 
 async function logout() {
+  if (isDemoMode || !supabase) {
+    localSessionUser = null;
+    applyAuthState(null);
+    return;
+  }
+
   const { error } = await supabase.auth.signOut();
   if (error) {
     showStatus(`Ошибка выхода: ${error.message}`, true);
@@ -778,8 +792,13 @@ async function init() {
   clearDirectionForm();
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    showStatus('Нужно создать config.js по образцу config.example.js и вставить URL/anon key Supabase.', true);
-    return;
+    isDemoMode = true;
+    showStatus('config.js не заполнен. Включен демо-режим.', true);
+  }
+
+  if (!isDemoMode && (!String(supabaseUrl).startsWith('https://') || String(supabaseAnonKey).length < 20)) {
+    isDemoMode = true;
+    showStatus('Похоже, в config.js некорректный URL или anon key. Включен демо-режим.', true);
   }
 
   if (!String(supabaseUrl).startsWith('https://') || String(supabaseAnonKey).length < 20) {
@@ -830,7 +849,6 @@ async function init() {
     }
   });
 
-  await updateAuthUI();
   await loadAllData();
 }
 
