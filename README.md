@@ -21,8 +21,6 @@
 - If login still does not switch to admin view, open the status banner at the top of the page and check the exact error text.
 - If you see connection errors, verify `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `config.js`.
 - If wrong credentials are entered, the login form now shows a localized error message.
-- If Supabase is unavailable or config is invalid, the site switches to demo mode automatically.
-- Demo mode credentials (can be overridden in `config.js`): `admin@demo.local` / `admin12345`.
 
 ## Security note
 This uses the public anon key in the browser. That is normal for Supabase frontend apps.

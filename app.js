@@ -96,8 +96,6 @@ let editingEventId = null;
 let editingMemberId = null;
 let editingDirectionId = null;
 let authListener = null;
-let isDemoMode = false;
-let localSessionUser = null;
 
 function fillMonthSelect() {
   eventMonth.innerHTML = MONTH_NAMES.map((name, index) => `<option value="${index}">${name}</option>`).join('');
@@ -169,50 +167,6 @@ function normalizeEventRecord(event) {
     place: String(event?.place || ''),
     color: event?.color || 'blue'
   };
-}
-
-
-
-function getDemoData() {
-  const raw = localStorage.getItem('career_center_demo_data_v1');
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      // ignore broken storage
-    }
-  }
-
-  return {
-    jobs: [
-      { id: 'demo-job-1', title: 'Стажёр Frontend', direction: 'ИСИП', description: 'Помощь в разработке интерфейсов.', form_link: '#' }
-    ],
-    events: [
-      { id: 'demo-event-1', title: 'Карьерный интенсив', year: new Date().getFullYear(), month: new Date().getMonth(), day: Math.max(1, new Date().getDate()), event_time: '12:00', place: 'Актовый зал', color: 'blue' }
-    ],
-    members: [
-      { id: 'demo-member-1', full_name: 'Администратор демо', role: 'Координатор', description: 'Демо-режим без Supabase.', photo_url: '' }
-    ],
-    directions: [
-      { id: 'demo-dir-1', name: 'ИСИП', subtitle: 'Информационные системы', jobs: ['Стажёр Frontend', 'Стажёр QA'] }
-    ]
-  };
-}
-
-function loadDemoDataIntoState() {
-  const data = getDemoData();
-  state.jobs = data.jobs || [];
-  state.events = (data.events || []).map(normalizeEventRecord);
-  state.members = data.members || [];
-  state.directions = data.directions || [];
-}
-
-function requireSupabaseForEdit() {
-  if (isDemoMode || !supabase) {
-    showStatus('Сохранение отключено: сейчас включен демо-режим без Supabase.', true);
-    return false;
-  }
-  return true;
 }
 
 function readErrorMessage(error, fallback = 'Неизвестная ошибка') {
@@ -497,12 +451,7 @@ function clearDirectionForm() {
 }
 
 async function loadAllData() {
-  if (isDemoMode || !supabase) {
-    loadDemoDataIntoState();
-    showStatus('Сайт работает в демо-режиме (нет подключения к Supabase).', true);
-    renderAll();
-    return;
-  }
+  if (!supabase) return;
 
   try {
     const [jobsRes, eventsRes, membersRes, directionsRes] = await Promise.all([
@@ -781,18 +730,8 @@ async function login() {
   const email = adminEmail.value.trim();
   const password = adminPassword.value;
   if (!email || !password) return;
-  if (isDemoMode || !supabase) {
-    const demoEmail = config.DEMO_ADMIN_EMAIL || 'admin@demo.local';
-    const demoPassword = config.DEMO_ADMIN_PASSWORD || 'admin12345';
-    if (email !== demoEmail || password !== demoPassword) {
-      loginError.textContent = 'Неверный логин или пароль (демо-режим).';
-      showStatus(`Ошибка входа: ${loginError.textContent}`, true);
-      return;
-    }
-
-    localSessionUser = { email };
-    applyAuthState(localSessionUser);
-    showStatus(`Успешный вход: ${email}`);
+  if (!supabase) {
+    loginError.textContent = 'Supabase не инициализирован. Проверьте config.js.';
     return;
   }
 
@@ -862,13 +801,15 @@ async function init() {
     showStatus('Похоже, в config.js некорректный URL или anon key. Включен демо-режим.', true);
   }
 
-  if (!isDemoMode) {
-    try {
-      supabase = createClient(supabaseUrl, supabaseAnonKey);
-    } catch (error) {
-      isDemoMode = true;
-      showStatus(`Ошибка инициализации Supabase: ${readErrorMessage(error)}. Включен демо-режим.`, true);
-    }
+  if (!String(supabaseUrl).startsWith('https://') || String(supabaseAnonKey).length < 20) {
+    showStatus('Похоже, в config.js некорректный URL или anon key Supabase.', true);
+  }
+
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    showStatus(`Ошибка инициализации Supabase: ${readErrorMessage(error)}`, true);
+    return;
   }
 
   openAdminBtn.addEventListener('click', () => adminModal.classList.add('show'));
@@ -897,22 +838,16 @@ async function init() {
   prevMonthBtn.addEventListener('click', () => changeMonth(-1));
   nextMonthBtn.addEventListener('click', () => changeMonth(1));
 
-  if (!isDemoMode && supabase) {
-    if (authListener?.subscription) {
-      authListener.subscription.unsubscribe();
-    }
-    authListener = supabase.auth.onAuthStateChange(async () => {
-      try {
-        await updateAuthUI();
-      } catch (error) {
-        showStatus(`Ошибка обновления авторизации: ${readErrorMessage(error)}`, true);
-      }
-    });
-
-    await updateAuthUI();
-  } else {
-    applyAuthState(localSessionUser);
+  if (authListener?.subscription) {
+    authListener.subscription.unsubscribe();
   }
+  authListener = supabase.auth.onAuthStateChange(async () => {
+    try {
+      await updateAuthUI();
+    } catch (error) {
+      showStatus(`Ошибка обновления авторизации: ${readErrorMessage(error)}`, true);
+    }
+  });
 
   await loadAllData();
 }
